@@ -126,25 +126,53 @@ router.post('/import-url', async (req: AuthRequest, res) => {
 // Get all recipes
 router.get('/', async (req: AuthRequest, res) => {
     try {
-        const { category, difficulty } = req.query;
+        const { category, difficulty, duration, search } = req.query;
+        const parsedPage = Number.parseInt(String(req.query.page || '1'), 10);
+        const parsedPageSize = Number.parseInt(String(req.query.pageSize || '12'), 10);
+        const currentPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+        const currentPageSize = Number.isFinite(parsedPageSize)
+            ? Math.min(Math.max(parsedPageSize, 1), 100)
+            : 12;
 
-        let queryText = 'SELECT * FROM recipes WHERE user_id = $1';
+        let whereText = 'WHERE user_id = $1';
         const params: any[] = [req.userId];
 
-        if (category) {
+        if (typeof category === 'string' && category) {
             params.push(category);
-            queryText += ` AND category = $${params.length}`;
+            whereText += ` AND category = $${params.length}`;
         }
 
-        if (difficulty) {
+        if (typeof difficulty === 'string' && difficulty) {
             params.push(difficulty);
-            queryText += ` AND difficulty = $${params.length}`;
+            whereText += ` AND difficulty = $${params.length}`;
         }
 
-        queryText += ' ORDER BY name ASC';
+        if (typeof search === 'string' && search.trim()) {
+            params.push(`%${search.trim()}%`);
+            whereText += ` AND name ILIKE $${params.length}`;
+        }
 
-        const result = await query(queryText, params);
-        res.json({ success: true, data: result.rows });
+        if (typeof duration === 'string' && duration) {
+            const totalTime = 'COALESCE(prep_time, 0) + COALESCE(cook_time, 0)';
+            if (duration === 'under15') whereText += ` AND ${totalTime} > 0 AND ${totalTime} <= 15`;
+            if (duration === 'under30') whereText += ` AND ${totalTime} > 0 AND ${totalTime} <= 30`;
+            if (duration === 'under60') whereText += ` AND ${totalTime} > 0 AND ${totalTime} <= 60`;
+            if (duration === 'over60') whereText += ` AND ${totalTime} > 60`;
+        }
+
+        const countResult = await query(`SELECT COUNT(*)::int AS total FROM recipes ${whereText}`, params);
+        const total = countResult.rows[0].total;
+        const totalPages = Math.ceil(total / currentPageSize);
+        const offset = (currentPage - 1) * currentPageSize;
+        const dataParams = [...params, currentPageSize, offset];
+        const queryText = `SELECT * FROM recipes ${whereText} ORDER BY name ASC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
+
+        const result = await query(queryText, dataParams);
+        res.json({
+            success: true,
+            data: result.rows,
+            pagination: { total, page: currentPage, pageSize: currentPageSize, totalPages },
+        });
     } catch (error) {
         console.error('Get recipes error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });

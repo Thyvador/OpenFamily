@@ -198,6 +198,8 @@ Starring the repository helps just as much — it is how other families find the
 Contributions are welcome! Open an [issue](https://github.com/NexaFlowFrance/OpenFamily/issues)
 or a [pull request](https://github.com/NexaFlowFrance/OpenFamily/pulls).
 
+See [CONTRIBUTIN.md](/CONTRIBUTING.md) for more details.
+
 ## 📄 License
 
 GNU Affero General Public License v3.0 (AGPL-3.0-only) — see [licence.md](licence.md).

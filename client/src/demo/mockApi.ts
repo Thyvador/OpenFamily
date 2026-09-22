@@ -566,7 +566,33 @@ async function route(method: string, path: string, q: Record<string, string>, bo
             image_url: null,
         });
     }
-    if (path === '/api/recipes' && method === 'GET') return ok(store.recipes);
+    if (path === '/api/recipes' && method === 'GET') {
+        const params = q;
+        const page = Math.max(1, Math.floor(num(params.page) || 1));
+        const pageSize = Math.min(100, Math.max(1, Math.floor(num(params.pageSize) || 12)));
+        const search = (params.search || '').toLowerCase();
+        const filtered = store.recipes.filter((recipe) => {
+            if (search && !String(recipe.name).toLowerCase().includes(search)) return false;
+            if (params.category && recipe.category !== params.category) return false;
+            if (params.difficulty && recipe.difficulty !== params.difficulty) return false;
+            if (params.duration) {
+                const total = num(recipe.prep_time) + num(recipe.cook_time);
+                if (total <= 0) return false;
+                if (params.duration === 'under15' && total > 15) return false;
+                if (params.duration === 'under30' && total > 30) return false;
+                if (params.duration === 'under60' && total > 60) return false;
+                if (params.duration === 'over60' && total <= 60) return false;
+            }
+            return true;
+        });
+        const totalPages = Math.ceil(filtered.length / pageSize);
+        const start = (page - 1) * pageSize;
+        return {
+            success: true,
+            data: filtered.slice(start, start + pageSize),
+            pagination: { total: filtered.length, page, pageSize, totalPages },
+        };
+    }
     if (path === '/api/recipes' && method === 'POST') return ok(create('recipes', body));
     if (seg[1] === 'recipes' && seg.length === 3) {
         if (method === 'PUT') return ok(update('recipes', seg[2], body));

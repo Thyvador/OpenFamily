@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWebSocketUpdates } from '../hooks/useWebSocketUpdates';
 import { api } from '../lib/api';
-import { Plus, Search, Edit2, Trash2, Clock, Users, ChefHat, Eye, Link2, Sparkles, ShoppingCart, CheckSquare, Square, Filter, X } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Clock, Users, ChefHat, Eye, Link2, Sparkles, ShoppingCart, CheckSquare, Square, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, Button, Dialog, Input, Select, Textarea, Badge, useToast } from '../components/ui';
 import { useCategories } from '../hooks/useCategories';
 import { cn } from '../lib/utils';
@@ -133,6 +133,9 @@ const Recipes: React.FC = () => {
     const [filterCategory, setFilterCategory] = useState('');
     const [filterDifficulty, setFilterDifficulty] = useState('');
     const [filterDuration, setFilterDuration] = useState('');
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(0);
+    const pageSize = 12;
     const [showMobileFilters, setShowMobileFilters] = useState(false);
     const [error, setError] = useState('');
     const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -277,15 +280,33 @@ const Recipes: React.FC = () => {
     });
 
     useEffect(() => {
-        loadRecipes();
-    }, []);
+        void loadRecipes();
+    }, [page, pageSize, searchQuery, filterCategory, filterDifficulty, filterDuration]);
     useWebSocketUpdates('recipes', () => { void loadRecipes(); });
+
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, filterCategory, filterDifficulty, filterDuration]);
+
+    useEffect(() => {
+        if (totalPages > 0 && page > totalPages) setPage(totalPages);
+    }, [page, totalPages]);
 
     const loadRecipes = async () => {
         try {
-            const response = await api.get<{ success: boolean; data: Recipe[] }>('/api/recipes');
+            const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+            if (searchQuery.trim()) params.set('search', searchQuery.trim());
+            if (filterCategory) params.set('category', filterCategory);
+            if (filterDifficulty) params.set('difficulty', filterDifficulty);
+            if (filterDuration) params.set('duration', filterDuration);
+            const response = await api.get<{
+                success: boolean;
+                data: Recipe[];
+                pagination: { totalPages: number };
+            }>(`/api/recipes?${params.toString()}`);
             if (response.success) {
                 setRecipes(response.data);
+                setTotalPages(response.pagination.totalPages);
             }
         } catch (error) {
             console.error('Failed to load recipes:', error);
@@ -426,24 +447,7 @@ const Recipes: React.FC = () => {
         });
     };
 
-    const filteredRecipes = recipes.filter((recipe) => {
-        if (searchQuery && !recipe.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-            return false;
-        }
-        if (filterCategory && recipe.category !== filterCategory) return false;
-        if (filterDifficulty && recipe.difficulty !== filterDifficulty) return false;
-        if (filterDuration) {
-            // Total time = prep + cook (minutes). Recipes with no time data (total 0)
-            // only ever appear under "All", never in a bounded bucket.
-            const total = (recipe.prep_time || 0) + (recipe.cook_time || 0);
-            if (total <= 0) return false;
-            if (filterDuration === 'under15' && total > 15) return false;
-            if (filterDuration === 'under30' && total > 30) return false;
-            if (filterDuration === 'under60' && total > 60) return false;
-            if (filterDuration === 'over60' && total <= 60) return false;
-        }
-        return true;
-    });
+    const filteredRecipes = recipes;
 
     const getDifficultyColor = (difficulty?: string) => {
         switch (difficulty) {
@@ -664,6 +668,36 @@ const Recipes: React.FC = () => {
                             </CardContent>
                         </Card>
                     ))}
+                </div>
+            )}
+
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-3">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={page === 1}
+                        onClick={() => setPage((current) => current - 1)}
+                        aria-label={t('recipes:pagination.previous', { defaultValue: 'Previous page' })}
+                    >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
+                        {t('recipes:pagination.previous', { defaultValue: 'Previous' })}
+                    </Button>
+                    <span className="text-body-sm text-muted-foreground">
+                        {t('recipes:pagination.page', { defaultValue: 'Page {{page}} of {{total}}', page, total: totalPages })}
+                    </span>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={page === totalPages}
+                        onClick={() => setPage((current) => current + 1)}
+                        aria-label={t('recipes:pagination.next', { defaultValue: 'Next page' })}
+                    >
+                        {t('recipes:pagination.next', { defaultValue: 'Next' })}
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
                 </div>
             )}
 

@@ -23,10 +23,15 @@
     "docker:down": "docker-compose down",
     "docker:build": "docker-compose build",
     "smoke:api": "bash ./scripts/smoke-api.sh",
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install && cd ../shared && npm install"
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install && cd ../shared && npm install",
+    "commit": "cz",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "commitizen": "^4.3.2",
+    "concurrently": "^8.2.2",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.7"
   },
   "overrides": {
     "serialize-javascript": "7.0.5",
@@ -38,5 +43,10 @@
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
   }
 }

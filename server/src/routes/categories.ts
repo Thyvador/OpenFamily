@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool, { query } from '../db';
+import { pool, query } from '../db/index';
 import { authMiddleware, AuthRequest, requireParent } from '../middleware/auth';
 
 // Per-family customizable categories (issue #68).

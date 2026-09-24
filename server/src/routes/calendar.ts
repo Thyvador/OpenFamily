@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { query } from '../db';
+import { query } from '../db/index';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();

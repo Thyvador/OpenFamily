@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import rateLimit from 'express-rate-limit';
-import { query } from '../db';
+import { query } from '../db/index';
 import { authMiddleware, AuthRequest, generateToken } from '../middleware/auth';
 import { normalizeEmail } from '../lib/normalize';
 import { isMailEnabled, sendPasswordResetEmail } from '../lib/mailer';

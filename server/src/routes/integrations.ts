@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../db';
+import { query } from '../db/index';
 import { authMiddleware, requireParent, AuthRequest } from '../middleware/auth';
 import { encryptCredentials, decryptCredentials } from '../utils/crypto';
 import { assertSafeIntegrationUrl, UnsafeUrlError } from '../utils/urlGuard';

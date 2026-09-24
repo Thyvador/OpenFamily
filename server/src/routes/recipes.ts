@@ -1,11 +1,14 @@
 import { Router } from 'express';
-import pool, { query } from '../db';
+import { getClient, query } from '../db/index';
+import db from '../db/index';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { toNullIfEmpty, toOptionalNumber } from '../lib/normalize';
 import { broadcast } from '../lib/broadcaster';
 import { assertSafeIntegrationUrl, UnsafeUrlError } from '../utils/urlGuard';
 import { getFamilyCategories } from './categories';
 import { fetchHtmlPage, findRecipeJsonLd, normalizeJsonLdRecipe } from '../lib/recipeImport';
+import { recipes } from '../db/schema';
+import { and, asc, count, eq, gt, like, lte, sql } from 'drizzle-orm';
 
 const router = Router();
 router.use(authMiddleware);
@@ -15,7 +18,7 @@ router.use(authMiddleware);
 // client/src/lib/ingredientParser.ts); nothing here is user-visible text, so
 // nothing here needs translating.
 router.post('/add-to-shopping', async (req: AuthRequest, res) => {
-    const client = await pool.connect();
+    const client = await getClient();
     try {
         const { items, recipeName } = req.body as { items?: string[]; recipeName?: string };
         if (!Array.isArray(items) || items.length === 0) {
@@ -85,7 +88,7 @@ router.post('/add-to-shopping', async (req: AuthRequest, res) => {
             duplicateCount,
         });
     } catch (error) {
-        await client.query('ROLLBACK').catch(() => {});
+        await client.query('ROLLBACK').catch(() => { });
         console.error('Add ingredients to shopping list error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });
     } finally {
@@ -134,43 +137,47 @@ router.get('/', async (req: AuthRequest, res) => {
             ? Math.min(Math.max(parsedPageSize, 1), 100)
             : 12;
 
-        let whereText = 'WHERE user_id = $1';
-        const params: any[] = [req.userId];
+        const params: any[] = [eq(recipes.user_id, req.userId!)];
 
         if (typeof category === 'string' && category) {
-            params.push(category);
-            whereText += ` AND category = $${params.length}`;
+            params.push(eq(recipes.category, category));
         }
 
         if (typeof difficulty === 'string' && difficulty) {
-            params.push(difficulty);
-            whereText += ` AND difficulty = $${params.length}`;
+            params.push(eq(recipes.difficulty, difficulty));
         }
 
         if (typeof search === 'string' && search.trim()) {
-            params.push(`%${search.trim()}%`);
-            whereText += ` AND name ILIKE $${params.length}`;
+            params.push(like(recipes.name, `%${search.trim()}%`));
         }
 
         if (typeof duration === 'string' && duration) {
-            const totalTime = 'COALESCE(prep_time, 0) + COALESCE(cook_time, 0)';
-            if (duration === 'under15') whereText += ` AND ${totalTime} > 0 AND ${totalTime} <= 15`;
-            if (duration === 'under30') whereText += ` AND ${totalTime} > 0 AND ${totalTime} <= 30`;
-            if (duration === 'under60') whereText += ` AND ${totalTime} > 0 AND ${totalTime} <= 60`;
-            if (duration === 'over60') whereText += ` AND ${totalTime} > 60`;
+            const totalTime = sql<number>`COALESCE(${recipes.prep_time}, 0) + COALESCE(${recipes.cook_time}, 0)`;
+            switch (duration) {
+                case "under15":
+                    params.push(and(gt(totalTime, 0), lte(totalTime, 15)));
+                    break;
+                case "under30":
+                    params.push(and(gt(totalTime, 0), lte(totalTime, 30)));
+                    break;
+                case "under60":
+                    params.push(and(gt(totalTime, 0), lte(totalTime, 60)));
+                    break;
+                case "over60":
+                    params.push(gt(totalTime, 60));
+                    break;
+            }
         }
 
-        const countResult = await query(`SELECT COUNT(*)::int AS total FROM recipes ${whereText}`, params);
-        const total = countResult.rows[0].total;
+        const countResult = await db.select({ count: count() }).from(recipes).where(and(...params));
+        const total = countResult[0].count;
         const totalPages = Math.ceil(total / currentPageSize);
         const offset = (currentPage - 1) * currentPageSize;
-        const dataParams = [...params, currentPageSize, offset];
-        const queryText = `SELECT * FROM recipes ${whereText} ORDER BY name ASC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
 
-        const result = await query(queryText, dataParams);
-        res.json({
+        const result = await db.select().from(recipes).where(and(...params)).orderBy(asc(recipes.name)).limit(currentPageSize).offset(offset);
+        return res.json({
             success: true,
-            data: result.rows,
+            data: result,
             pagination: { total, page: currentPage, pageSize: currentPageSize, totalPages },
         });
     } catch (error) {
@@ -184,16 +191,14 @@ router.get('/:id', async (req: AuthRequest, res) => {
     try {
         const { id } = req.params;
 
-        const result = await query(
-            'SELECT * FROM recipes WHERE id = $1 AND user_id = $2',
-            [id, req.userId]
-        );
 
-        if (result.rows.length === 0) {
+        const result = await db.select().from(recipes).where(and(eq(recipes.id, id), eq(recipes.user_id, req.userId!)));
+
+        if (result.length === 0) {
             return res.status(404).json({ success: false, error: 'Recipe not found' });
         }
 
-        res.json({ success: true, data: result.rows[0] });
+        res.json({ success: true, data: result[0] });
     } catch (error) {
         console.error('Get recipe error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });
@@ -216,27 +221,23 @@ router.post('/', async (req: AuthRequest, res) => {
             });
         }
 
-        const result = await query(
-            `INSERT INTO recipes (user_id, name, category, description, ingredients, instructions, prep_time, cook_time, servings, difficulty, tags, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-            [
-                req.userId,
-                cleanedName,
-                cleanedCategory,
-                toNullIfEmpty(description),
-                JSON.stringify(cleanedIngredients),
-                JSON.stringify(cleanedInstructions),
-                toOptionalNumber(prep_time),
-                toOptionalNumber(cook_time),
-                toOptionalNumber(servings),
-                toNullIfEmpty(difficulty),
-                JSON.stringify(Array.isArray(tags) ? tags.filter(Boolean) : []),
-                toNullIfEmpty(image_url),
-            ]
-        );
+        const result = await db.insert(recipes).values({
+            user_id: req.userId!,
+            name: cleanedName,
+            category: cleanedCategory,
+            description: toNullIfEmpty(description),
+            ingredients: JSON.stringify(cleanedIngredients),
+            instructions: JSON.stringify(cleanedInstructions),
+            prep_time: toOptionalNumber(prep_time),
+            cook_time: toOptionalNumber(cook_time),
+            servings: toOptionalNumber(servings),
+            difficulty: toNullIfEmpty(difficulty),
+            tags: JSON.stringify(Array.isArray(tags) ? tags.filter(Boolean) : []),
+            image_url: toNullIfEmpty(image_url),
+        }).returning();
 
         broadcast(req.userId!, { type: 'update', entity: 'recipes', action: 'created' });
-        res.json({ success: true, data: result.rows[0] });
+        res.json({ success: true, data: result[0] });
     } catch (error) {
         console.error('Create recipe error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });

@@ -2,7 +2,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
 import app from './app';
-import pool, { runMigrations } from './db';
+import { pool, runMigrations } from './db/index';
 import logger from './lib/logger';
 import { clients, broadcast } from './lib/broadcaster';
 import { startReminderScheduler } from './lib/reminderScheduler';

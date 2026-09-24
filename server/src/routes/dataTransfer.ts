@@ -1,6 +1,6 @@
 import express, { Router } from 'express';
 import { PoolClient } from 'pg';
-import { getClient, query } from '../db';
+import { getClient, query } from '../db/index';
 import { authMiddleware, requireParent, AuthRequest } from '../middleware/auth';
 import { OPENFAMILY_VERSION } from '../version';
 import { cleanContent, cleanImage, cleanLink } from '../lib/postFields';

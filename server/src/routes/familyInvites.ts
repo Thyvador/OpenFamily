@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { query, getClient } from '../db';
+import { query, getClient } from '../db/index';
 import { authMiddleware, AuthRequest, generateToken } from '../middleware/auth';
 import { broadcast } from '../lib/broadcaster';
 import { createNotification } from '../lib/notifications';

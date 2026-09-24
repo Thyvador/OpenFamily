@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../db';
+import { query } from '../db/index';
 import { authMiddleware, AuthRequest, requireParent } from '../middleware/auth';
 import { toNullIfEmpty, toOptionalNumber } from '../lib/normalize';
 import { broadcast } from '../lib/broadcaster';

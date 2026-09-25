@@ -8,10 +8,7 @@ name: Android APK
 # GitHub Releases and testing). For a Play Store upload you'd add a release
 # keystore (see docs/MOBILE.md).
 
-on:
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+on: workflow_dispatch
 
 permissions:
   contents: write

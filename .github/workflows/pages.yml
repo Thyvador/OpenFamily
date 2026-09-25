@@ -10,12 +10,7 @@ name: Deploy GitHub Pages
 # Publishing a full copy here instead would mean two diverging sites, duplicate
 # content for search engines, and a waiting-list form that can never work.
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/pages.yml'
-  workflow_dispatch:
+on: workflow_dispatch
 
 permissions:
   contents: read

@@ -11,6 +11,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/nexaflowfrance/openfamily
+  ARM64_IMAGE_PREFIX: ghcr.io/Thyvador/openfamilly-arm64
 
 jobs:
   publish:
@@ -63,3 +64,33 @@ jobs:
             ${{ env.IMAGE_PREFIX }}-server:${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build & push ARM64 client image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./client/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ARM64_IMAGE_PREFIX }}-client:latest
+            ${{ env.ARM64_IMAGE_PREFIX }}-client:${{ steps.version.outputs.VERSION }}
+          build-args: |
+            VITE_API_URL=
+            VITE_WS_URL=
+            VITE_REGISTRATION_ENABLED=true
+          cache-from: type=gha,scope=openfamily-arm64-client
+          cache-to: type=gha,mode=max,scope=openfamily-arm64-client
+
+      - name: Build & push ARM64 server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./server/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ARM64_IMAGE_PREFIX }}-server:latest
+            ${{ env.ARM64_IMAGE_PREFIX }}-server:${{ steps.version.outputs.VERSION }}
+          cache-from: type=gha,scope=openfamily-arm64-server
+          cache-to: type=gha,mode=max,scope=openfamily-arm64-server

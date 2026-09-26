@@ -35,10 +35,6 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
 
 // Register
 router.post('/register', async (req, res) => {
-    if (process.env.REGISTRATION_ENABLED === 'false') {
-        return res.status(403).json({ success: false, error: 'Registration is disabled' });
-    }
-
     try {
         const { email, password, name, inviteToken } = req.body;
         const normalizedEmail = typeof email === 'string' ? normalizeEmail(email) : '';
@@ -52,16 +48,9 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
         }
 
-        // Check if user exists. Keep the error generic so the endpoint
-        // cannot be used to enumerate registered email addresses.
-        const existingUser = await query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
-        if (existingUser.rows.length > 0) {
-            return res.status(400).json({ success: false, error: 'Registration failed' });
-        }
-
-        // A new account joins an existing family ONLY via an explicit, valid invite token.
-        // Validate the invite BEFORE creating the account so an invalid token never leaves an orphan user.
-        // Without a token the user becomes their own family owner (standalone account).
+        // Validate invite before applying the registration switch. A valid invite
+        // is an explicit owner authorization and may create an account even when
+        // standalone self-registration is disabled.
         let invite: { id: string; owner_id: string; role: string } | null = null;
         if (typeof inviteToken === 'string' && inviteToken.length > 0) {
             const inviteResult = await query(
@@ -83,6 +72,20 @@ router.post('/register', async (req, res) => {
             invite = { id: row.id, owner_id: row.owner_id, role: row.role === 'enfant' ? 'enfant' : 'parent' };
         }
 
+        if (process.env.REGISTRATION_ENABLED === 'false' && !invite) {
+            return res.status(403).json({ success: false, error: 'Registration is disabled' });
+        }
+
+        // Check if user exists. Keep the error generic so the endpoint
+        // cannot be used to enumerate registered email addresses.
+        const existingUser = await query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ success: false, error: 'Registration failed' });
+        }
+
+        // A new account joins an existing family ONLY via an explicit, valid invite token.
+        // Validate the invite BEFORE creating the account so an invalid token never leaves an orphan user.
+        // Without a token the user becomes their own family owner (standalone account).
         // The account role is NEVER taken from the client: an invited member gets the
         // role chosen by the inviter; a standalone account owns its family → 'parent'.
         const cleanedRole = invite ? invite.role : 'parent';

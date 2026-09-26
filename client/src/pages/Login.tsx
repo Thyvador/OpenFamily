@@ -18,6 +18,7 @@ const Login: React.FC = () => {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [name, setName] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -43,6 +44,12 @@ const Login: React.FC = () => {
     const handleForgotSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+
+        if (!isLogin && password !== confirmPassword) {
+            setError(t('auth:reset.mismatch'));
+            return;
+        }
+
         setLoading(true);
         try {
             await api.post('/api/auth/password/forgot', { email });
@@ -203,6 +210,19 @@ const Login: React.FC = () => {
                             />
                         </div>
 
+                        {!isLogin && (
+                            <div className="space-y-1.5">
+                                <Input
+                                    label={t('auth:reset.confirmPassword')}
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    required
+                                    placeholder="••••••••"
+                                />
+                            </div>
+                        )}
+
                         {error && (
                             <div className="p-3 rounded-nexus bg-destructive/10 border border-destructive/20 animate-accordion-down">
                                 <p className="text-label-sm text-destructive font-medium text-center">{error}</p>
@@ -246,10 +266,11 @@ const Login: React.FC = () => {
                     {registrationEnabled && (
                         <div className="mt-8 text-center pt-2 border-t border-border">
                             <button
-                                onClick={() => {
-                                    setIsLogin(!isLogin);
-                                    setError('');
-                                }}
+                                 onClick={() => {
+                                     setIsLogin(!isLogin);
+                                     setConfirmPassword('');
+                                     setError('');
+                                 }}
                                 className="text-body-sm text-nexus-blue hover:text-nexus-blue/80 font-medium transition-colors hover:underline underline-offset-4"
                             >
                                 {isLogin

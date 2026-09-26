@@ -58,6 +58,11 @@ function App() {
         return <ResetPassword onDone={() => navigate('/', { replace: true })} />;
     }
 
+    // Invitees need access to the registration form before authentication.
+    if (!isAuthenticated && location.pathname === '/join') {
+        return <Join />;
+    }
+
     if (!isAuthenticated) {
         return <Login />;
     }

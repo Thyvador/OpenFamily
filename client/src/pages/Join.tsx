@@ -22,7 +22,7 @@ const Join: React.FC = () => {
     const { t } = useTranslation(['auth', 'common']);
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const { joinFamily, user } = useAuth();
+    const { joinFamily, register, user } = useAuth();
 
     // From the URL when the invite link was opened directly; otherwise the user
     // pastes the link (or the bare code) into the form below.
@@ -33,6 +33,11 @@ const Join: React.FC = () => {
     const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
     const [loading, setLoading] = useState(Boolean(searchParams.get('invite')));
     const [joining, setJoining] = useState(false);
+    const [registering, setRegistering] = useState(false);
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [joined, setJoined] = useState(false);
 
@@ -79,6 +84,28 @@ const Join: React.FC = () => {
             setError(err instanceof Error ? err.message : t('auth:invite.joinError'));
         } finally {
             setJoining(false);
+        }
+    };
+
+    const handleRegister = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!inviteToken) return;
+        setError(null);
+
+        if (password !== confirmPassword) {
+            setError(t('auth:reset.mismatch'));
+            return;
+        }
+
+        setRegistering(true);
+        try {
+            await register(email, password, name, inviteToken);
+            setJoined(true);
+            setTimeout(() => navigate('/'), 2000);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : t('auth:invite.joinError'));
+        } finally {
+            setRegistering(false);
         }
     };
 
@@ -171,30 +198,76 @@ const Join: React.FC = () => {
                                 {t('auth:invite.shareWarning', { name: inviteInfo.ownerName })}
                             </p>
 
-                            <div className="flex gap-3">
-                                <Button
-                                    variant="secondary"
-                                    className="flex-1"
-                                    onClick={() => navigate('/')}
-                                    disabled={joining}
-                                >
-                                    {t('common:actions.cancel')}
-                                </Button>
-                                <Button
-                                    className="flex-1"
-                                    onClick={handleJoin}
-                                    disabled={joining}
-                                >
-                                    {joining ? (
-                                        <span className="flex items-center gap-2">
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                            {t('auth:invite.joining')}
-                                        </span>
-                                    ) : (
-                                        t('auth:invite.join')
-                                    )}
-                                </Button>
-                            </div>
+                            {user ? (
+                                <div className="flex gap-3">
+                                    <Button
+                                        variant="secondary"
+                                        className="flex-1"
+                                        onClick={() => navigate('/')}
+                                        disabled={joining}
+                                    >
+                                        {t('common:actions.cancel')}
+                                    </Button>
+                                    <Button
+                                        className="flex-1"
+                                        onClick={handleJoin}
+                                        disabled={joining}
+                                    >
+                                        {joining ? (
+                                            <span className="flex items-center gap-2">
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                {t('auth:invite.joining')}
+                                            </span>
+                                        ) : (
+                                            t('auth:invite.join')
+                                        )}
+                                    </Button>
+                                </div>
+                            ) : (
+                                <form onSubmit={handleRegister} className="space-y-4">
+                                    <Input
+                                        label={t('auth:fields.fullName')}
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                        required
+                                        placeholder={t('auth:fields.fullNamePlaceholder')}
+                                    />
+                                    <Input
+                                        label={t('auth:fields.email')}
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        required
+                                        placeholder={t('auth:fields.emailPlaceholder')}
+                                    />
+                                    <Input
+                                        label={t('auth:fields.password')}
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required
+                                        placeholder="••••••••"
+                                    />
+                                    <Input
+                                        label={t('auth:reset.confirmPassword')}
+                                        type="password"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        required
+                                        placeholder="••••••••"
+                                    />
+                                    <Button type="submit" className="w-full" disabled={registering}>
+                                        {registering ? (
+                                            <span className="flex items-center justify-center gap-2">
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                {t('common:states.loading')}
+                                            </span>
+                                        ) : (
+                                            t('auth:register.submit')
+                                        )}
+                                    </Button>
+                                </form>
+                            )}
                         </>
                     )}
 

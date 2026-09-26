@@ -27,6 +27,7 @@
     "check:i18n": "cd client && npm run check:i18n"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "argv-formatter": "^1.0.0",
     "commitizen": "^4.3.2",

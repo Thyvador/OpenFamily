@@ -4,7 +4,7 @@ import { useWebSocketUpdates } from '../hooks/useWebSocketUpdates';
 import { api } from '../lib/api';
 import { useAuth, DEFAULT_DASHBOARD_PREFS, type DashboardPrefs, type DashboardWidget } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
-import { intlLocale, dateLocale } from '../i18n/format';
+import { intlLocale, dateLocale, isoWeekdayAtOffset, weekStartsOn } from '../i18n/format';
 import {
     ShoppingCart, CheckSquare, Calendar, Wallet, AlertCircle, ChevronRight, Clock,
     SlidersHorizontal, Eye, EyeOff, ArrowUp, ArrowDown, CalendarDays,
@@ -80,8 +80,9 @@ const Dashboard: React.FC = () => {
         weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     }).format(new Date());
 
-    // Monday-based week, matching the Planning page.
-    const weekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
+    // Same first day as the Planning page: the member's choice, or regional.
+    const firstDay = weekStartsOn();
+    const weekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: firstDay }), [firstDay]);
 
     useEffect(() => { void loadAll(); }, [agendaView]);
     useWebSocketUpdates('tasks', () => { void loadAll(); });
@@ -368,7 +369,7 @@ const Dashboard: React.FC = () => {
                             key={card.title}
                             onClick={() => navigate(card.href)}
                             className={[
-                                'group flex flex-col items-start gap-3 p-5 text-left transition-colors hover:bg-surface-2',
+                                'group flex min-w-0 flex-col items-start gap-3 p-4 text-left transition-colors hover:bg-surface-2 sm:p-5',
                                 i < 2 ? 'border-b lg:border-b-0' : '',
                                 i % 2 === 0 ? 'border-r border-border' : '',
                                 i < visible.length - 1 ? 'lg:border-r lg:border-border' : '',
@@ -379,7 +380,9 @@ const Dashboard: React.FC = () => {
                                 <Icon className="h-4 w-4" />
                                 {card.title}
                             </span>
-                            <span className={`font-serif text-4xl leading-none tracking-tight ${(card as { flag?: boolean }).flag ? 'text-primary' : 'text-foreground'}`}>
+                            {/* An amount is twice as long as a count: smaller on a phone so
+                                "229,40 €" stays on one line in a half-width tile. */}
+                            <span className={`whitespace-nowrap font-serif leading-none tracking-tight ${typeof card.value === 'string' ? 'text-2xl sm:text-4xl' : 'text-4xl'} ${(card as { flag?: boolean }).flag ? 'text-primary' : 'text-foreground'}`}>
                                 {card.value}
                             </span>
                         </button>
@@ -392,7 +395,7 @@ const Dashboard: React.FC = () => {
     const renderPlanning = () => {
         const days = Array.from({ length: 7 }, (_, i) => ({
             date: addDays(weekStart, i),
-            dayOfWeek: i + 1,
+            dayOfWeek: isoWeekdayAtOffset(i),
         })).map((day) => ({
             ...day,
             items: planning.filter((entry) => entry.day_of_week === day.dayOfWeek),

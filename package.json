@@ -23,7 +23,8 @@
     "docker:build": "docker-compose build",
     "smoke:api": "bash ./scripts/smoke-api.sh",
     "install:all": "npm install && cd client && npm install && cd ../server && npm install && cd ../shared && npm install",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:i18n": "cd client && npm run check:i18n"
   },
   "devDependencies": {
     "@semantic-release/git": "^10.0.1",

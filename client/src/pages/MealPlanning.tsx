@@ -4,8 +4,8 @@ import { useWebSocketUpdates } from '../hooks/useWebSocketUpdates';
 import { api } from '../lib/api';
 import { Plus, ChevronLeft, ChevronRight, Edit2, Trash2, ShoppingCart, Sparkles, Loader2, UtensilsCrossed } from 'lucide-react';
 import { Card, CardContent, Button, Dialog, Input, Select, Textarea, useToast } from '../components/ui';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks } from 'date-fns';
-import { dateLocale } from '../i18n/format';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, isToday } from 'date-fns';
+import { dateLocale, weekStartsOn } from '../i18n/format';
 import { useAiEnabled } from '../lib/aiStatus';
 import { useAuth } from '../contexts/AuthContext';
 import { aiErrorKey } from '../components/app/MagicInput';
@@ -100,8 +100,8 @@ const MealPlanning: React.FC = () => {
 
     const loadMealPlans = async () => {
         try {
-            const start = startOfWeek(currentWeek, { weekStartsOn: 1 });
-            const end = endOfWeek(currentWeek, { weekStartsOn: 1 });
+            const start = startOfWeek(currentWeek, { weekStartsOn: weekStartsOn() });
+            const end = endOfWeek(currentWeek, { weekStartsOn: weekStartsOn() });
             const response = await api.get<{ success: boolean; data: MealPlan[] }>(
                 `/api/meal-plans?start_date=${format(start, 'yyyy-MM-dd')}&end_date=${format(end, 'yyyy-MM-dd')}`
             );
@@ -322,7 +322,7 @@ const MealPlanning: React.FC = () => {
         setSelectedProposals(new Set());
         setAiDialogOpen(true);
         try {
-            const start = startOfWeek(currentWeek, { weekStartsOn: 1 });
+            const start = startOfWeek(currentWeek, { weekStartsOn: weekStartsOn() });
             const response = await api.post<{ success: boolean; data: { proposals: MealProposal[] } }>(
                 '/api/ai/suggest-meals',
                 { week_start: format(start, 'yyyy-MM-dd') }
@@ -382,8 +382,8 @@ const MealPlanning: React.FC = () => {
         }
     };
 
-    const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(currentWeek, { weekStartsOn: weekStartsOn() });
+    const weekEnd = endOfWeek(currentWeek, { weekStartsOn: weekStartsOn() });
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
     const filteredRecipes = recipes.filter((recipe) =>
         recipe.name.toLocaleLowerCase().includes(recipeSearch.trim().toLocaleLowerCase())
@@ -468,7 +468,7 @@ const MealPlanning: React.FC = () => {
             </div>
 
             <Card>
-                <CardContent className="p-6">
+                <CardContent className="p-4 sm:p-6">
                     <h2 className="text-h2 font-semibold mb-4">
                         {t('meals:weekOf', {
                             start: format(weekStart, 'dd MMM', { locale: dateLocale() }),
@@ -476,8 +476,66 @@ const MealPlanning: React.FC = () => {
                         })}
                     </h2>
 
+                    {/* Below 1024px the eight-column grid only fitted behind a
+                        sideways scroll (two days visible on a phone): one card
+                        per day instead, meals stacked. */}
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:hidden">
+                        {weekDays.map((day) => (
+                            <div
+                                key={day.toISOString()}
+                                className={`rounded-card border p-3 ${isToday(day) ? 'border-primary' : 'border-border'}`}
+                            >
+                                <p className="mb-2 text-body-sm font-semibold first-letter:uppercase">
+                                    {format(day, 'EEEE d MMMM', { locale: dateLocale() })}
+                                </p>
+                                <div className="space-y-1.5">
+                                    {MEAL_TYPES.map((mealType) => {
+                                        const meal = getMealForSlot(day, mealType);
+                                        return (
+                                            <div
+                                                key={mealType}
+                                                role="button"
+                                                tabIndex={0}
+                                                className={`flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg border bg-gradient-to-br px-3 py-1.5 ${getMealTypeColor(mealType)}`}
+                                                onClick={() => (meal ? handleEdit(meal) : handleAddMeal(day, mealType))}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') meal ? handleEdit(meal) : handleAddMeal(day, mealType);
+                                                }}
+                                            >
+                                                <span className="w-24 flex-shrink-0 text-micro font-medium text-muted-foreground">
+                                                    {mealTypeLabel(mealType)}
+                                                </span>
+                                                {meal ? (
+                                                    <>
+                                                        <span className="min-w-0 flex-1 break-words text-body-sm font-medium">
+                                                            {meal.recipe?.name || meal.custom_meal}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            title={t('common:actions.delete')}
+                                                            aria-label={t('common:actions.delete')}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDelete(meal.id);
+                                                            }}
+                                                            className="-mr-1.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded hover:bg-card/70"
+                                                        >
+                                                            <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <Plus className="ml-auto h-4 w-4 opacity-40" />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
                     {/* Weekly Grid */}
-                    <div className="overflow-x-auto">
+                    <div className="hidden overflow-x-auto lg:block">
                         <div className="min-w-[800px]">
                             {/* Header */}
                             <div className="grid grid-cols-8 gap-2 mb-2">

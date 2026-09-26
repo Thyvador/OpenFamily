@@ -6,8 +6,10 @@ import { apiBase } from '../lib/serverConfig';
 import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Edit2, Trash2, MapPin, Clock, CalendarPlus, Copy, Check, RefreshCw, Search, X } from 'lucide-react';
 import { Card, CardContent, Button, Dialog, Input, Textarea, Badge, Select, DatePicker } from '../components/ui';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isToday, addMonths, subMonths, startOfWeek, endOfWeek, startOfDay, endOfDay } from 'date-fns';
-import { dateLocale } from '../i18n/format';
+import { dateLocale, orderIsoWeekdays, weekStartsOn } from '../i18n/format';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { useCategories } from '../hooks/useCategories';
 
 interface Appointment {
     id: string;
@@ -32,6 +34,8 @@ interface Appointment {
     notes?: string;
     color?: string;
     is_all_day?: boolean;
+    linked_budget_entry_id?: string | null;
+    linked_recurring_expense_id?: string | null;
 }
 
 interface FamilyMember {
@@ -141,8 +145,20 @@ const APPOINTMENT_COLORS = [
     { name: 'Black', color: '#111827' },
 ] as const;
 
+const isLinkedToBudget = (appointment: Appointment) =>
+    Boolean(appointment.linked_budget_entry_id || appointment.linked_recurring_expense_id);
+
 const Calendar: React.FC = () => {
-    const { t } = useTranslation(['calendar', 'common']);
+    const { t } = useTranslation(['calendar', 'budget', 'common']);
+    const { user } = useAuth();
+    const { categories } = useCategories();
+    // Budget writes are parent-only on the server; children never see the option.
+    const canBudgetEdit = Boolean(user?.is_owner) || (user?.role ?? '').toLowerCase() !== 'enfant';
+    const currency = user?.currency || 'EUR';
+    const [addToBudget, setAddToBudget] = useState(false);
+    const [budgetAmount, setBudgetAmount] = useState('');
+    const [budgetCategory, setBudgetCategory] = useState('Maison');
+    const [budgetIsExpense, setBudgetIsExpense] = useState(true);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
@@ -309,6 +325,14 @@ const Calendar: React.FC = () => {
         // starts on, so every existing query and the agenda views keep working.
         // Its reminders are cleared: "30 minutes before" means nothing without a
         // start time the user chose.
+        if (!editingAppointment && addToBudget) {
+            const amount = parseFloat(budgetAmount.replace(',', '.'));
+            if (!Number.isFinite(amount) || amount <= 0) {
+                setError(t('calendar:errors.budgetAmountInvalid'));
+                return;
+            }
+        }
+
         const day = formData.start_time.slice(0, 10);
         const payload = formData.is_all_day
             ? {
@@ -337,8 +361,22 @@ const Calendar: React.FC = () => {
 
             if (editingAppointment) {
                 await api.put(`/api/appointments/${editingAppointment.id}`, payload);
+                // A linked budget item follows the event's new date and recurrence.
+                if (canBudgetEdit && isLinkedToBudget(editingAppointment)) {
+                    await api.post(`/api/budget/from-appointment/${editingAppointment.id}`, {});
+                }
             } else {
-                await api.post('/api/appointments', payload);
+                const created = await api.post<{ success: boolean; data: Appointment }>(
+                    '/api/appointments',
+                    payload
+                );
+                if (addToBudget && canBudgetEdit && created.success && created.data?.id) {
+                    await api.post(`/api/budget/from-appointment/${created.data.id}`, {
+                        amount: parseFloat(budgetAmount.replace(',', '.')),
+                        category: budgetCategory,
+                        is_expense: budgetIsExpense,
+                    });
+                }
             }
 
             setDialogOpen(false);
@@ -440,6 +478,9 @@ const Calendar: React.FC = () => {
                         `/api/appointments/${appointment.id}`,
                         payload
                     );
+                    if (canBudgetEdit && isLinkedToBudget(appointment)) {
+                        await api.post(`/api/budget/from-appointment/${appointment.id}`, {});
+                    }
                 }
             }
 
@@ -513,6 +554,10 @@ const Calendar: React.FC = () => {
     const resetForm = () => {
         setEditingAppointment(null);
         setEndManuallySet(false);
+        setAddToBudget(false);
+        setBudgetAmount('');
+        setBudgetCategory('Maison');
+        setBudgetIsExpense(true);
         setFormData({
             title: '',
             description: '',
@@ -605,8 +650,8 @@ const Calendar: React.FC = () => {
 
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
-    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 });
-    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn: weekStartsOn() });
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: weekStartsOn() });
     const calendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
     const getAppointmentsForDay = (date: Date) => {
@@ -619,7 +664,7 @@ const Calendar: React.FC = () => {
     };
 
     const weekDaysRaw = t('common:daysShort', { returnObjects: true }) as string[];
-    const weekDays = [weekDaysRaw[6], ...weekDaysRaw.slice(0, 6)];
+    const weekDays = orderIsoWeekdays(weekDaysRaw);
 
     const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
@@ -664,13 +709,18 @@ const Calendar: React.FC = () => {
                     <p className="text-muted-foreground text-body">{t('calendar:subtitle')}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={openFeedDialog}>
-                        <CalendarPlus className="w-4 h-4 mr-2" />
-                        {t('calendar:exportIcal')}
+                    <Button
+                        variant="secondary"
+                        onClick={openFeedDialog}
+                        title={t('calendar:exportIcal')}
+                        aria-label={t('calendar:exportIcal')}
+                    >
+                        <CalendarPlus className="w-4 h-4 sm:mr-2" />
+                        <span className="hidden sm:inline">{t('calendar:exportIcal')}</span>
                     </Button>
-                    <Button onClick={() => openNewEventForDate(new Date())}>
+                    <Button className="flex-1 sm:flex-none" onClick={() => openNewEventForDate(new Date())}>
                         <Plus className="w-4 h-4 mr-2" />
-                        {t('calendar:newAppointment')}
+                        <span className="whitespace-nowrap">{t('calendar:newAppointment')}</span>
                     </Button>
                 </div>
             </div>
@@ -760,12 +810,12 @@ const Calendar: React.FC = () => {
 
             {/* Calendar Header */}
             <Card>
-                <CardContent className="p-6">
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-h2 font-semibold capitalize">
+                <CardContent className="p-3 sm:p-6">
+                    <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+                        <h2 className="min-w-0 text-h2 font-semibold capitalize">
                             {format(currentDate, 'MMMM yyyy', { locale: dateLocale() })}
                         </h2>
-                        <div className="flex gap-2">
+                        <div className="flex flex-shrink-0 gap-2">
                             <Button
                                 variant="secondary"
                                 size="sm"
@@ -776,6 +826,7 @@ const Calendar: React.FC = () => {
                             <Button
                                 variant="secondary"
                                 size="sm"
+                                className="whitespace-nowrap"
                                 onClick={() => setCurrentDate(new Date())}
                             >
                                 {t('common:actions.today')}
@@ -791,12 +842,12 @@ const Calendar: React.FC = () => {
                     </div>
 
                     {/* Calendar Grid */}
-                    <div className="grid grid-cols-7 gap-2">
+                    <div className="grid grid-cols-7 gap-1 sm:gap-2">
                         {/* Week day headers */}
                         {weekDays.map((day) => (
                             <div
                                 key={day}
-                                className="text-center text-label font-semibold text-muted-foreground py-2"
+                                className="truncate text-center text-micro sm:text-label font-semibold text-muted-foreground py-1 sm:py-2"
                             >
                                 {day}
                             </div>
@@ -813,13 +864,13 @@ const Calendar: React.FC = () => {
                                     key={index}
                                     onClick={() => isCurrentMonth && handleCalendarDayClick(day, dayAppointments)}
                                     className={`
-                                        min-h-[100px] p-2 border rounded-lg cursor-pointer transition-all
+                                        min-h-[52px] sm:min-h-[100px] p-1 sm:p-2 border rounded-lg cursor-pointer transition-all
                                         ${isCurrentMonth ? 'bg-card hover:bg-nexus-background' : 'bg-surface-2 opacity-50'}
                                         ${isTodayDate ? 'border-nexus-blue border-2' : 'border-border'}
                                         ${!isCurrentMonth && 'cursor-default'}
                                     `}
                                 >
-                                    <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center justify-center sm:justify-between mb-1">
                                         <span
                                             className={`text-body-sm font-medium ${isTodayDate
                                                 ? 'bg-nexus-blue text-white w-6 h-6 rounded-full flex items-center justify-center'
@@ -831,7 +882,23 @@ const Calendar: React.FC = () => {
                                             {format(day, 'd')}
                                         </span>
                                     </div>
-                                    <div className="space-y-1">
+                                    {/* On a phone a cell is 50px wide: coloured dots, and a tap
+                                        on the day lists its events. */}
+                                    {dayAppointments.length > 0 && (
+                                        <div className="flex flex-wrap items-center justify-center gap-0.5 sm:hidden" aria-hidden>
+                                            {dayAppointments.slice(0, 4).map((apt) => (
+                                                <span
+                                                    key={apt.occurrence_id || apt.id}
+                                                    className="h-1.5 w-1.5 rounded-full"
+                                                    style={{ backgroundColor: apt.color || '#DC4A60' }}
+                                                />
+                                            ))}
+                                            {dayAppointments.length > 4 && (
+                                                <span className="text-[9px] leading-none text-muted-foreground">+{dayAppointments.length - 4}</span>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="hidden space-y-1 sm:block">
                                         {dayAppointments.slice(0, 3).map((apt) => (
                                             <div
                                                 key={apt.occurrence_id || apt.id}
@@ -1112,6 +1179,85 @@ const Calendar: React.FC = () => {
                             )}
                         </div>
                     </div>
+                    {canBudgetEdit && !editingAppointment && (
+                        <div className="rounded-input border border-border bg-surface-2/40 p-3">
+                            <label className="flex cursor-pointer items-start gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={addToBudget}
+                                    onChange={(e) => setAddToBudget(e.target.checked)}
+                                    className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                                />
+                                <span>
+                                    <span className="block text-body-sm font-medium">
+                                        {t('calendar:form.addToBudget')}
+                                    </span>
+                                    <span className="block text-micro text-muted-foreground">
+                                        {t('calendar:form.addToBudgetHint')}
+                                    </span>
+                                </span>
+                            </label>
+
+                            {addToBudget && (
+                                <div className="mt-3 space-y-3">
+                                    <div className="flex rounded-input overflow-hidden border border-border">
+                                        <button
+                                            type="button"
+                                            onClick={() => setBudgetIsExpense(true)}
+                                            className={`flex-1 py-2.5 text-body-sm font-medium transition-colors ${
+                                                budgetIsExpense ? 'bg-danger/100 text-white' : 'bg-surface-1 text-muted-foreground'
+                                            }`}
+                                        >
+                                            {t('budget:toggle.expense')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setBudgetIsExpense(false)}
+                                            className={`flex-1 py-2.5 text-body-sm font-medium transition-colors ${
+                                                !budgetIsExpense ? 'bg-success/100 text-white' : 'bg-surface-1 text-muted-foreground'
+                                            }`}
+                                        >
+                                            {t('budget:toggle.income')}
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                        <Input
+                                            label={t('calendar:form.budgetAmount', { currency })}
+                                            type="number"
+                                            min={0.01}
+                                            step={0.01}
+                                            value={budgetAmount}
+                                            onChange={(e) => setBudgetAmount(e.target.value)}
+                                            required
+                                        />
+                                        <div>
+                                            <label className="mb-1.5 block text-label font-medium text-foreground">
+                                                {t('calendar:form.budgetCategory')}
+                                            </label>
+                                            <select
+                                                value={budgetCategory}
+                                                onChange={(e) => setBudgetCategory(e.target.value)}
+                                                className="input-nexus w-full"
+                                            >
+                                                {categories.budget.map((category) => (
+                                                    <option key={category} value={category}>
+                                                        {t(`budget:categories.${category}`, { defaultValue: category })}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {editingAppointment && isLinkedToBudget(editingAppointment) && (
+                        <div className="rounded-input border border-success/30 bg-success/10 px-3 py-2 text-body-sm text-success">
+                            {t('calendar:form.budgetLinked')}
+                        </div>
+                    )}
+
                     <Input
                         label={t('calendar:form.location')}
                         value={formData.location}

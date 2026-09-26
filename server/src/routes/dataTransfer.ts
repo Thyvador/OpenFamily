@@ -4,6 +4,7 @@ import { getClient, query } from '../db';
 import { authMiddleware, requireParent, AuthRequest } from '../middleware/auth';
 import { OPENFAMILY_VERSION } from '../version';
 import { cleanContent, cleanImage, cleanLink } from '../lib/postFields';
+import { cleanImageUrl } from '../lib/recipeImage';
 
 const PORTABLE_FORMAT = 'openfamily-portable';
 const PORTABLE_VERSION = '2.0';
@@ -87,11 +88,12 @@ const IMPORT_COLUMNS: Record<string, ReadonlySet<string>> = {
     ]),
     recurring_expenses: new Set([
         'id', 'label', 'amount', 'category', 'debit_day', 'is_active',
-        'created_at', 'updated_at',
+        'is_expense', 'start_date', 'recurrence_frequency', 'recurrence_interval',
+        'recurrence_until', 'created_at', 'updated_at',
     ]),
     recurring_expense_logs: new Set([
-        'id', 'recurring_expense_id', 'month', 'year', 'is_pointed',
-        'pointed_at', 'created_at',
+        'id', 'recurring_expense_id', 'month', 'year', 'occurrence_date',
+        'is_pointed', 'pointed_at', 'created_at',
     ]),
     kakeibo_months: new Set([
         'id', 'month', 'year', 'savings_goal', 'notes', 'created_at', 'updated_at',
@@ -157,6 +159,23 @@ const sanitizeMemberArray = (
     return value.filter(
         (id): id is string => typeof id === 'string' && ownedMemberIds.has(id)
     );
+};
+
+// Files exported before 1.7.2 describe recurring budget items as "every month
+// on debit_day", with one paid mark per month. Both now need a date; derive it
+// exactly as migration core/0001-budget-recurrence does for existing data, so
+// an old backup restores to the same schedule as an upgraded installation.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+const clampedDay = (year: number, month: number, day: number): string => {
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const d = Math.min(Math.max(1, day), last);
+    return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+
+const validDebitDay = (value: unknown): number | null => {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null;
 };
 
 const loadOwnedIds = async (
@@ -259,7 +278,7 @@ router.get('/export', requireParent, async (req: AuthRequest, res) => {
             // ownership state and other authorization material are excluded.
             query(
                 `SELECT id, email, (id = $1) AS is_owner,
-                        language, avatar_url, dashboard_prefs
+                        language, week_start_day, avatar_url, dashboard_prefs
                  FROM users
                  WHERE id = $1 OR family_owner_id = $1
                  ORDER BY (id = $1) DESC, email`,
@@ -491,6 +510,11 @@ router.post('/import', requireParent, importBodyParser, async (req: AuthRequest,
                 values.push(ref.avatar_url);
                 assignments.push(`avatar_url = $${values.length}`);
             }
+            if (ref.week_start_day === null
+                || (Number.isInteger(ref.week_start_day) && Number(ref.week_start_day) >= 1 && Number(ref.week_start_day) <= 7)) {
+                values.push(ref.week_start_day);
+                assignments.push(`week_start_day = $${values.length}`);
+            }
             if (ref.dashboard_prefs === null || typeof ref.dashboard_prefs === 'string') {
                 values.push(ref.dashboard_prefs);
                 assignments.push(`dashboard_prefs = $${values.length}`);
@@ -661,7 +685,11 @@ router.post('/import', requireParent, importBodyParser, async (req: AuthRequest,
 
         const familyMemberIds = await loadOwnedIds(client, 'family_members', userId);
 
-        await importRows('recipes', importData.recipes);
+        await importRows('recipes', importData.recipes, (row) => {
+            // Same rule as the recipe routes; an unusable photo is dropped, not the recipe.
+            row.image_url = cleanImageUrl(row.image_url) ?? null;
+            return row;
+        });
         const recipeIds = await loadOwnedIds(client, 'recipes', userId);
 
         await importRows('tasks', importData.tasks, (row) => {
@@ -719,7 +747,35 @@ router.post('/import', requireParent, importBodyParser, async (req: AuthRequest,
 
         await importRows('family_notes', importData.family_notes);
 
-        await importRows('recurring_expenses', importData.recurring_expenses);
+        // Earliest month each item was marked paid in the file, as the migration
+        // does: an old file may hold marks from before the item's creation date.
+        const firstMarkedMonth = new Map<string, number>();
+        for (const raw of Array.isArray(importData.recurring_expense_logs) ? importData.recurring_expense_logs : []) {
+            const log = asRecord(raw);
+            const id = sourceId(log?.recurring_expense_id);
+            const month = Number(log?.month);
+            const year = Number(log?.year);
+            if (!id || !Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year)) continue;
+            const key = year * 12 + (month - 1);
+            if (!firstMarkedMonth.has(id) || key < firstMarkedMonth.get(id)!) firstMarkedMonth.set(id, key);
+        }
+
+        const debitDays = new Map<string, number>();
+        await importRows('recurring_expenses', importData.recurring_expenses, (row) => {
+            const debitDay = validDebitDay(row.debit_day);
+            if (!debitDay) return null;
+            if (typeof row.start_date !== 'string' || !DATE_ONLY.test(row.start_date.slice(0, 10))) {
+                const created = new Date(typeof row.created_at === 'string' ? row.created_at : Date.now());
+                const base = Number.isNaN(created.getTime()) ? new Date() : created;
+                let key = base.getUTCFullYear() * 12 + base.getUTCMonth();
+                const marked = firstMarkedMonth.get(sourceId(row.id) ?? '');
+                if (marked !== undefined && marked < key) key = marked;
+                row.start_date = clampedDay(Math.floor(key / 12), (key % 12) + 1, debitDay);
+            }
+            const id = sourceId(row.id);
+            if (id) debitDays.set(id, debitDay);
+            return row;
+        });
         const recurringExpenseIds = await loadOwnedIds(
             client,
             'recurring_expenses',
@@ -730,11 +786,46 @@ router.post('/import', requireParent, importBodyParser, async (req: AuthRequest,
             importData.recurring_expense_logs,
             (row) => {
                 const recurringId = sourceId(row.recurring_expense_id);
-                return recurringId && recurringExpenseIds.has(recurringId)
-                    ? row
-                    : null;
+                if (!recurringId || !recurringExpenseIds.has(recurringId)) return null;
+                if (typeof row.occurrence_date !== 'string' || !DATE_ONLY.test(row.occurrence_date.slice(0, 10))) {
+                    const month = Number(row.month);
+                    const year = Number(row.year);
+                    const debitDay = debitDays.get(recurringId);
+                    if (!debitDay || !Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year)) {
+                        return null;
+                    }
+                    row.occurrence_date = clampedDay(year, month, debitDay);
+                }
+                return row;
             }
         );
+
+        // Calendar events come in before the budget items they carry, so the
+        // links are restored once both exist, and only between rows of this
+        // family. An item already linked to another event is left alone.
+        let linksRestored = 0;
+        for (const raw of Array.isArray(importData.appointments) ? importData.appointments : []) {
+            const row = asRecord(raw);
+            const appointmentId = sourceId(row?.id);
+            if (!row || !appointmentId) continue;
+            for (const [column, table] of [
+                ['linked_budget_entry_id', 'budget_entries'],
+                ['linked_recurring_expense_id', 'recurring_expenses'],
+            ] as const) {
+                const targetId = sourceId(row[column]);
+                if (!targetId) continue;
+                const result = await client.query(
+                    `UPDATE appointments
+                     SET ${column} = $2::uuid
+                     WHERE id = $1::uuid AND user_id = $3 AND ${column} IS NULL
+                       AND EXISTS (SELECT 1 FROM ${table} WHERE id = $2::uuid AND user_id = $3)
+                       AND NOT EXISTS (SELECT 1 FROM appointments WHERE ${column} = $2::uuid)`,
+                    [appointmentId, targetId, userId]
+                );
+                linksRestored += result.rowCount ?? 0;
+            }
+        }
+        counts.calendar_budget_links = linksRestored;
 
         await importRows('kakeibo_months', importData.kakeibo_months);
 

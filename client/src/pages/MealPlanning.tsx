@@ -767,6 +767,23 @@ const MealPlanning: React.FC = () => {
                             })}
                         </div>
                         <div className="max-h-72 space-y-1 overflow-y-auto rounded-input border border-border p-3">
+                            <label className="flex cursor-pointer items-start gap-2 rounded border-b border-border px-1 py-2 font-medium hover:bg-nexus-background">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedIngredients.size === ingredientLines.length}
+                                    onChange={(event) => setSelectedIngredients(
+                                        event.target.checked
+                                            ? new Set(ingredientLines.map((line) => line.key))
+                                            : new Set()
+                                    )}
+                                    className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                                />
+                                <span className="text-body-sm text-foreground">
+                                    {selectedIngredients.size === ingredientLines.length
+                                        ? t('meals:shopping.unselectAll')
+                                        : t('meals:shopping.selectAll')}
+                                </span>
+                            </label>
                             {ingredientLines.map((line) => (
                                 <label
                                     key={line.key}

@@ -30,6 +30,8 @@
     "dialogDescription": "{{start}} 至 {{end}} 期间计划食谱中的食材。取消勾选不需要的食材。",
     "empty": "本周没有安排包含食谱的餐食。",
     "selectedCount": "已选择 {{selected}}/{{total}} 种食材",
+    "selectAll": "全选",
+    "unselectAll": "取消全选",
     "alreadyOnList": "已在清单中",
     "confirm_one": "添加 {{count}} 种食材",
     "confirm_other": "添加 {{count}} 种食材",

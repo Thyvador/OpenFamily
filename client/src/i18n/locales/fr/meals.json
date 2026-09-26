@@ -30,6 +30,8 @@
     "dialogDescription": "Ingrédients des recettes prévues du {{start}} au {{end}}. Décochez ce dont vous n'avez pas besoin.",
     "empty": "Aucun repas avec recette n'est prévu cette semaine.",
     "selectedCount": "{{selected}} ingrédient(s) sélectionné(s) sur {{total}}",
+    "selectAll": "Tout sélectionner",
+    "unselectAll": "Tout désélectionner",
     "alreadyOnList": "déjà dans la liste",
     "confirm_one": "Ajouter {{count}} ingrédient",
     "confirm_other": "Ajouter {{count}} ingrédients",

@@ -30,6 +30,8 @@
     "dialogDescription": "Ingredients from the recipes planned between {{start}} and {{end}}. Uncheck anything you don't need.",
     "empty": "No meal with a recipe is planned this week.",
     "selectedCount": "{{selected}} of {{total}} ingredients selected",
+    "selectAll": "Select all",
+    "unselectAll": "Unselect all",
     "alreadyOnList": "already on the list",
     "confirm_one": "Add {{count}} ingredient",
     "confirm_other": "Add {{count}} ingredients",

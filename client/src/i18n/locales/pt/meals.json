@@ -30,6 +30,8 @@
     "dialogDescription": "Ingredientes das receitas planejadas entre {{start}} e {{end}}. Desmarque o que não precisar.",
     "empty": "Nenhuma refeição com receita planejada para esta semana.",
     "selectedCount": "{{selected}} de {{total}} ingredientes selecionados",
+    "selectAll": "Selecionar tudo",
+    "unselectAll": "Desmarcar tudo",
     "alreadyOnList": "já está na lista",
     "confirm_one": "Adicionar {{count}} ingrediente",
     "confirm_other": "Adicionar {{count}} ingredientes",

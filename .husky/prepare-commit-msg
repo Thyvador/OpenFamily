@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+
+# Let Git-generated messages pass unchanged.
+case "${2:-}" in
+  merge|squash|commit) exit 0 ;;
+esac
+
+exec < /dev/tty && npx --no-install cz --hook || true

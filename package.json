@@ -18,19 +18,27 @@
     "build:client": "cd client && npm run build",
     "build:site": "node scripts/build-site.mjs",
     "check:public": "node scripts/check-public-safe.mjs",
-    "hooks:install": "git config core.hooksPath .githooks",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:build": "docker-compose build",
     "smoke:api": "bash ./scripts/smoke-api.sh",
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install && cd ../shared && npm install"
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install && cd ../shared && npm install",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@semantic-release/git": "^10.0.1",
     "argv-formatter": "^1.0.0",
+    "commitizen": "^4.3.2",
     "concurrently": "^8.2.2",
     "conventional-changelog-conventionalcommits": "^10.4.0",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.7",
     "semantic-release": "^24.2.9"
+  },
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
   },
   "overrides": {
     "serialize-javascript": "7.0.5",

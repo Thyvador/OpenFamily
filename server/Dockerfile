@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN cd shared && npm run build
 RUN cd server && npm run build
 
 # Production stage
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
@@ -41,7 +41,7 @@ COPY shared/package.json ./shared/
 # i18next (a client dependency) lists it as an optional peer. Do not reach for
 # --omit=optional to drop it: that would also drop the optional platform binaries
 # some runtime dependencies rely on.
-RUN npm ci --omit=dev --workspace=server --workspace=shared --include-workspace-root \
+RUN npm ci --omit=dev --workspace=server --workspace=shared --include-workspace-root --ignore-scripts \
     && npm cache clean --force
 
 # Copy built files from builder

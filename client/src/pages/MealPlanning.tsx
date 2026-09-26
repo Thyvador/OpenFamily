@@ -9,6 +9,7 @@ import { dateLocale } from '../i18n/format';
 import { useAiEnabled } from '../lib/aiStatus';
 import { useAuth } from '../contexts/AuthContext';
 import { aiErrorKey } from '../components/app/MagicInput';
+import { useCategories } from '../hooks/useCategories';
 
 interface MealPlan {
     id: string;
@@ -27,6 +28,8 @@ interface Recipe {
     id: string;
     name: string;
     category: string;
+    difficulty?: string;
+    image_url?: string | null;
     ingredients?: string[];
 }
 
@@ -51,6 +54,8 @@ const MealPlanning: React.FC = () => {
     const { t } = useTranslation(['meals', 'recipes', 'common', 'ai']);
     const mealTypeLabel = (v: string) => t(`meals:mealTypes.${v}`, { defaultValue: v });
     const recipeCategoryLabel = (v: string) => t(`recipes:categories.${v}`, { defaultValue: v });
+    const recipeDifficultyLabel = (v?: string) => v ? t(`recipes:difficulties.${v}`, { defaultValue: v }) : '';
+    const { categories: familyCategories } = useCategories();
     const [currentWeek, setCurrentWeek] = useState(new Date());
     const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
     const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -59,6 +64,8 @@ const MealPlanning: React.FC = () => {
     const [editingMeal, setEditingMeal] = useState<MealPlan | null>(null);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedMealType, setSelectedMealType] = useState<string>('');
+    const [recipeCategory, setRecipeCategory] = useState('');
+    const [recipeSearch, setRecipeSearch] = useState('');
     const [error, setError] = useState('');
     const { showToast } = useToast();
     const [shoppingDialogOpen, setShoppingDialogOpen] = useState(false);
@@ -83,8 +90,11 @@ const MealPlanning: React.FC = () => {
 
     useEffect(() => {
         loadMealPlans();
-        loadRecipes();
     }, [currentWeek]);
+
+    useEffect(() => {
+        loadRecipes();
+    }, [recipeCategory]);
     useWebSocketUpdates('meal-plans', () => { void loadMealPlans(); });
     useWebSocketUpdates('recipes', () => { void loadRecipes(); });
 
@@ -108,7 +118,9 @@ const MealPlanning: React.FC = () => {
 
     const loadRecipes = async () => {
         try {
-            const response = await api.get<{ success: boolean; data: Recipe[] }>('/api/recipes');
+            const params = new URLSearchParams({ page: '1', pageSize: '100' });
+            if (recipeCategory) params.set('category', recipeCategory);
+            const response = await api.get<{ success: boolean; data: Recipe[] }>(`/api/recipes?${params.toString()}`);
             if (response.success) {
                 setRecipes(response.data);
             }
@@ -162,6 +174,8 @@ const MealPlanning: React.FC = () => {
         // Use noon to avoid timezone shifts when parsing date strings
         setSelectedDate(new Date(meal.date + 'T12:00:00'));
         setSelectedMealType(meal.meal_type);
+        setRecipeCategory(recipes.find((recipe) => recipe.id === meal.recipe_id)?.category || '');
+        setRecipeSearch('');
         setFormData({
             meal_type: meal.meal_type,
             recipe_id: meal.recipe_id || '',
@@ -175,6 +189,8 @@ const MealPlanning: React.FC = () => {
         setEditingMeal(null);
         setSelectedDate(date);
         setSelectedMealType(mealType);
+        setRecipeCategory('');
+        setRecipeSearch('');
         setFormData({
             meal_type: mealType,
             recipe_id: '',
@@ -189,6 +205,8 @@ const MealPlanning: React.FC = () => {
         setEditingMeal(null);
         setSelectedDate(null);
         setSelectedMealType('');
+        setRecipeCategory('');
+        setRecipeSearch('');
         setError('');
         setFormData({
             meal_type: 'Déjeuner',
@@ -367,6 +385,9 @@ const MealPlanning: React.FC = () => {
     const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
+    const filteredRecipes = recipes.filter((recipe) =>
+        recipe.name.toLocaleLowerCase().includes(recipeSearch.trim().toLocaleLowerCase())
+    );
 
     const getMealForSlot = (date: Date, mealType: string) => {
         const dateStr = format(date, 'yyyy-MM-dd');
@@ -554,32 +575,91 @@ const MealPlanning: React.FC = () => {
             >
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
+                        <div className="flex items-center justify-between rounded-input border border-border bg-surface-2 px-3 py-2">
+                            <span className="text-label text-muted-foreground">{t('meals:form.mealType')}</span>
+                            <span className="text-body-sm font-medium text-foreground">{mealTypeLabel(formData.meal_type)}</span>
+                        </div>
+                    </div>
+                    <div>
                         <label className="block text-label font-medium text-foreground mb-1.5">
-                            {t('meals:form.mealType')}
+                            {t('recipes:form.category')}
                         </label>
                         <Select
-                            value={formData.meal_type}
-                            onValueChange={(value) => setFormData({ ...formData, meal_type: value })}
-                            options={MEAL_TYPES.map((type) => ({ value: type, label: mealTypeLabel(type) }))}
+                            value={recipeCategory}
+                            onValueChange={(value) => {
+                                setRecipeCategory(value);
+                                if (value && formData.recipe_id && recipes.find((recipe) => recipe.id === formData.recipe_id)?.category !== value) {
+                                    setFormData({ ...formData, recipe_id: '', custom_meal: '' });
+                                }
+                            }}
+                            options={[
+                                { value: '', label: t('recipes:allCategories') },
+                                ...familyCategories.recipe.map((category) => ({
+                                    value: category,
+                                    label: recipeCategoryLabel(category),
+                                })),
+                            ]}
                         />
                     </div>
                     <div>
                         <label className="block text-label font-medium text-foreground mb-1.5">
                             {t('meals:form.recipe')}
                         </label>
-                        <Select
-                            value={formData.recipe_id}
-                            onValueChange={(value) =>
-                                setFormData({ ...formData, recipe_id: value, custom_meal: '' })
-                            }
-                            options={[
-                                { value: '', label: t('meals:form.noRecipe') },
-                                ...recipes.map((recipe) => ({
-                                    value: recipe.id,
-                                    label: `${recipe.name} (${recipeCategoryLabel(recipe.category)})`,
-                                })),
-                            ]}
+                        <Input
+                            value={recipeSearch}
+                            onChange={(e) => setRecipeSearch(e.target.value)}
+                            placeholder={t('recipes:searchPlaceholder')}
+                            className="mb-2"
                         />
+                        <div className="max-h-72 overflow-y-auto rounded-input border border-border p-2">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, recipe_id: '', custom_meal: '' })}
+                                    className={`rounded-input border p-2 text-left transition-colors ${!formData.recipe_id
+                                        ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                                        : 'border-border hover:bg-surface-2'
+                                        }`}
+                                >
+                                    <div className="flex min-h-20 items-center justify-center rounded-input bg-surface-2 px-2 text-center text-body-sm text-muted-foreground">
+                                        {t('meals:form.noRecipe')}
+                                    </div>
+                                </button>
+                                {filteredRecipes.map((recipe) => (
+                                    <button
+                                        key={recipe.id}
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, recipe_id: recipe.id, custom_meal: '' })}
+                                        className={`rounded-input border p-2 text-left transition-colors ${formData.recipe_id === recipe.id
+                                            ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                                            : 'border-border hover:bg-surface-2'
+                                            }`}
+                                    >
+                                        {recipe.image_url ? (
+                                            <img
+                                                src={recipe.image_url}
+                                                alt=""
+                                                className="h-20 w-full rounded-input object-cover"
+                                            />
+                                        ) : (
+                                            <div className="flex h-20 items-center justify-center rounded-input bg-surface-2 text-body-sm text-muted-foreground">
+                                                {t('meals:form.noImage', { defaultValue: 'No image' })}
+                                            </div>
+                                        )}
+                                        <div className="mt-2 line-clamp-2 text-body-sm font-medium text-foreground">{recipe.name}</div>
+                                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-micro text-muted-foreground">
+                                            {recipe.difficulty && <span>{recipeDifficultyLabel(recipe.difficulty)}</span>}
+                                            <span>{recipeCategoryLabel(recipe.category)}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                                {filteredRecipes.length === 0 && (
+                                    <p className="col-span-full py-4 text-center text-body-sm text-muted-foreground">
+                                        {t('recipes:empty.noMatch')}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
                     </div>
                     {!formData.recipe_id && (
                         <Input

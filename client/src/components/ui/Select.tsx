@@ -45,7 +45,7 @@ export const Select: React.FC<SelectProps> = ({
                     position="popper"
                     sideOffset={6}
                 >
-                    <SelectPrimitive.Viewport className="p-1">
+                    <SelectPrimitive.Viewport className="max-h-[min(18rem,var(--radix-select-content-available-height))] overflow-y-auto p-1">
                         {options.map((option) => (
                             <SelectPrimitive.Item
                                 key={`${option.value}-${option.label}`}
